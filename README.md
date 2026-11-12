@@ -3,7 +3,8 @@
 经典像素风贪吃蛇，纯前端单页，可「安装」到 Android 桌面像原生 App 一样全屏启动，装过之后断网也能玩。
 
 - 操作：环形四分 D-pad（也支持键盘方向键 / WASD / 在棋盘上滑动）；点一下棋盘即暂停
-- 规则：撞墙即死；吃到食物变长，并按得分档位提速；最高分存在本机
+- 规则：撞墙即死；吃到红果变长并按得分档位提速；每吃到 3 个红果，棋盘上会出现一个**限时黄块**，吃到 +5 分但只长 1 节、不改变速度等级
+- 纪录：最高分按难度分别记录（普通榜 / 困难榜互不影响）
 - 难度：普通 / 困难（困难起步更长更快，且每得 6 分在棋盘上长出一个障碍）
 - 视觉：深色背景，蛇为霓虹绿，食物为霓虹红，障碍为红框叉块
 
@@ -54,7 +55,10 @@ snake/
 ```js
 var COLS = 22, ROWS = 22, CELL = 16;      // 棋盘 22×22 格，每格 16px
 var TIER_GAPS = [8, 6, 4, 3, 2, 2, 1];    // 升第 2/3/4…级各需再吃几分，用尽后每 1 分一级
-var STORE_KEY = 'snake.best.v1';          // 最高分
+var BONUS_EVERY = 3;                      // 每吃几个红果刷一个限时黄块
+var BONUS_TTL_BASE = 10, BONUS_TTL_MIN = 4; // 黄块存在 10 秒，每 2 个速度等级 -1 秒，最低 4 秒
+var STORE_KEY = 'snake.best.v1';          // 旧版单值最高分（自动迁移到普通榜）
+var BONUS_KEY = 'snake.best.v2';          // 分难度最高分 {normal, hard}
 var DIFF_KEY = 'snake.diff.v1';           // 上次选择的难度
 ```
 
@@ -77,6 +81,7 @@ v1-playable    屏幕方向键、滑动转向、暂停、像素风视觉
 v2-pwa         manifest、离线缓存、图标，可安装到桌面
 v3-final       开始页/结束页信息修正、README、一键本地启动
 v4-difficulty  环形四分 D-pad、点棋盘暂停、棋盘 22×22、得分档位提速、普通/困难难度
+v5-bonus       分难度最高分、限时奖励黄块（+5 分/不加速）、HUD 重排
 ```
 
 回退到任意版本：
@@ -93,6 +98,8 @@ git reset --hard v1-playable
 window.__dev.state()            // { snake, food, score, best, alive, running, tick, dir, obstacles, diff }
 window.__dev.placeFoodAt(x, y)  // 把食物挪到指定格
 window.__dev.placeObstacleAt(x, y) // 放一个障碍（困难模式调试用）
+window.__dev.placeBonusAt(x, y) // 放一个奖励黄块
+window.__dev.bonusTtlMs()       // 当前等级/难度下黄块的存活毫秒数
 window.__dev.levelForScore(s)   // 第 s 分对应的等级（0 起）
 window.__dev.tickFor(s)         // 第 s 分对应的 tick
 window.__dev.step()             // 手动走一步

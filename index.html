@@ -20,6 +20,7 @@
     --neon: #3dff6e;
     --neon-2: #22c24e;
     --food: #ff2e4d;
+    --bonus: #ffd93d;
     --text: #b6d6c1;
     --text-dim: #587a65;
   }
@@ -38,9 +39,11 @@
     padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
   }
   .hud {
-    width: min(94vw, 380px); display: flex; justify-content: space-between; align-items: flex-end;
+    width: min(94vw, 380px); display: grid; grid-template-columns: 1fr auto 1fr;
+    align-items: flex-end; gap: 10px;
     padding-bottom: 2px; border-bottom: 1px solid var(--line);
   }
+  .stat-group { display: flex; gap: 14px; justify-self: end; }
   .stat { display: flex; flex-direction: column; gap: 5px; }
   .stat .label { font-size: 10px; letter-spacing: 3px; color: var(--text-dim); }
   .stat .value {
@@ -49,7 +52,10 @@
   }
   .stat.right { text-align: right; }
   .stat.mid { align-items: center; text-align: center; }
-  .stat.mid .value { font-size: 20px; color: var(--text); text-shadow: 0 0 10px rgba(61, 255, 110, 0.35); }
+  .stat.mid .value { font-size: 20px; color: var(--text-dim); text-shadow: none; }
+  .stat.mid .value.is-on { color: var(--bonus); text-shadow: 0 0 12px rgba(255, 217, 61, 0.55); }
+  .stat-group .value { font-size: 20px; text-shadow: 0 0 10px rgba(61, 255, 110, 0.35); }
+  .stat-group .stat:first-child .value { color: var(--text); text-shadow: 0 0 10px rgba(61, 255, 110, 0.25); }
   .stage { position: relative; will-change: transform; }
   .stage.shake { animation: shake 0.32s steps(2, end); }
   @keyframes shake {
@@ -126,13 +132,16 @@
 <div class="app">
   <header class="hud">
     <div class="stat"><span class="label">SCORE</span><span class="value" id="score">0</span></div>
-    <div class="stat mid"><span class="label" id="lvLabel">LV</span><span class="value" id="lv">1</span></div>
-    <div class="stat right"><span class="label">BEST</span><span class="value" id="best">0</span></div>
+    <div class="stat mid"><span class="label">奖励</span><span class="value" id="timer">--</span></div>
+    <div class="stat-group">
+      <div class="stat right"><span class="label" id="lvLabel">普通 · LV</span><span class="value" id="lv">1</span></div>
+      <div class="stat right"><span class="label">BEST</span><span class="value" id="best">0</span></div>
+    </div>
   </header>
   <main class="stage">
     <canvas id="board" width="320" height="320"></canvas>
   </main>
-  <p class="hint">撞墙即死 · 点棋盘暂停 · 环形键 / 滑动 / 方向键</p>
+  <p class="hint">红果 +1 分 · 限时黄块 +5 分 · 点棋盘暂停</p>
   <nav class="pad" aria-label="方向控制">
     <svg class="ring" id="ring" viewBox="0 0 200 200" role="group" aria-label="环形方向键"></svg>
   </nav>
@@ -168,8 +177,12 @@
   var COLS = 22, ROWS = 22, CELL = 16;
   // 提速档位：累计 8 / 6 / 4 / 3 / 2 / 2 / 1 分升一级，之后每 1 分升一级
   var TIER_GAPS = [8, 6, 4, 3, 2, 2, 1];
-  var STORE_KEY = 'snake.best.v1';
+  var BONUS_KEY = 'snake.best.v2';        // { normal: n, hard: n } 分难度最高分
+  var STORE_KEY = 'snake.best.v1';         // 旧版单值最高分，读到时迁移到普通难度
   var DIFF_KEY = 'snake.diff.v1';
+  var BONUS_EVERY = 3;                     // 每吃 3 个红果刷一次奖励果
+  var BONUS_TTL_BASE = 10;                 // 奖励果基础存活秒数
+  var BONUS_TTL_MIN = 4;                   // 最快难度下的最短存活秒数
 
   var DIFFS = {
     normal: {
@@ -191,6 +204,7 @@
   var elBest = document.getElementById('best');
   var elLv = document.getElementById('lv');
   var elLvLabel = document.getElementById('lvLabel');
+  var elTimer = document.getElementById('timer');
   var diffBox = document.getElementById('diffBox');
   var diffDesc = document.getElementById('diffDesc');
   var overlay = document.getElementById('overlay');
@@ -205,18 +219,43 @@
   var flash = document.getElementById('flash');
   var stage = document.querySelector('.stage');
 
-  var snake, dir, queue, food, score, tick, alive, running, best;
+  var snake, dir, queue, food, score, tick, alive, running, best, eaten, bonus;
   var obstacles = [];
   var diff = loadDiff();
   var overlayMode = 'start';
+  var bests, bestAtStart = 0, newRecord = false, timerText = '';
 
-  best = loadBest();
+  bests = loadBests();
+  best = bestFor(diff);
 
-  function loadBest() {
-    try { return parseInt(localStorage.getItem(STORE_KEY) || '0', 10) || 0; } catch (e) { return 0; }
+  function loadBests() {
+    try {
+      var raw = localStorage.getItem(BONUS_KEY);
+      if (raw) {
+        var o = JSON.parse(raw);
+        if (o && typeof o === 'object') return o;
+      }
+      var old = parseInt(localStorage.getItem(STORE_KEY) || '0', 10) || 0;
+      if (old > 0) {
+        var migrated = { normal: old, hard: 0 };
+        localStorage.setItem(BONUS_KEY, JSON.stringify(migrated));
+        return migrated;
+      }
+    } catch (e) { /* 隐私模式下忽略 */ }
+    return { normal: 0, hard: 0 };
   }
-  function saveBest(v) {
-    try { localStorage.setItem(STORE_KEY, String(v)); } catch (e) { /* 隐私模式下忽略 */ }
+  function saveBests() {
+    try { localStorage.setItem(BONUS_KEY, JSON.stringify(bests)); } catch (e) { /* 忽略 */ }
+  }
+  function bestFor(k) {
+    return bests && bests[k] ? bests[k] : 0;
+  }
+  function submitScore() {
+    if (score > bestFor(diff)) {
+      bests[diff] = score;
+      saveBests();
+      best = score;
+    }
   }
 
   function reset() {
@@ -227,6 +266,11 @@
     queue = [];
     obstacles = [];
     score = 0;
+    eaten = 0;
+    bonus = null;
+    newRecord = false;
+    bestAtStart = bestFor(diff);
+    best = bestAtStart;
     tick = tickFor(0);
     alive = true;
     placeFood();
@@ -264,9 +308,45 @@
 
   function syncHud() {
     elScore.textContent = String(score);
-    elBest.textContent = String(best);
-    elLv.textContent = String(levelForScore(score) + 1);
+    elBest.textContent = String(bestFor(diff));
+    best = bestFor(diff);
+    elLv.textContent = String(levelForScore(eaten) + 1);
     elLvLabel.textContent = DIFFS[diff].label + ' · LV';
+    syncTimer();
+  }
+
+  // 奖励果倒计时：基础 10s，每 2 个速度档位 -1s，困难再 -1s，最短 4s
+  function bonusTtlMs() {
+    var lv = levelForScore(eaten);
+    var sec = BONUS_TTL_BASE - Math.floor(lv / 2) - (diff === 'hard' ? 1 : 0);
+    if (sec < BONUS_TTL_MIN) sec = BONUS_TTL_MIN;
+    return sec * 1000;
+  }
+
+  function syncTimer() {
+    var txt = bonus ? Math.max(0, Math.ceil(bonus.ms / 1000)) + 's' : '--';
+    if (txt === timerText) return;
+    timerText = txt;
+    elTimer.textContent = txt;
+    elTimer.classList.toggle('is-on', !!bonus);
+  }
+
+  function spawnBonus() {
+    if (bonus) return;                       // 上一颗还在，这轮跳过
+    var free = [], x, y;
+    for (y = 0; y < ROWS; y++) {
+      for (x = 0; x < COLS; x++) {
+        if (snake.some(function (s) { return s.x === x && s.y === y; })) continue;
+        if (food && food.x === x && food.y === y) continue;
+        if (obstacles.some(function (o) { return o.x === x && o.y === y; })) continue;
+        if (Math.abs(x - snake[0].x) + Math.abs(y - snake[0].y) < 3) continue;
+        free.push({ x: x, y: y });
+      }
+    }
+    if (!free.length) return;
+    var cell = free[(Math.random() * free.length) | 0];
+    bonus = { x: cell.x, y: cell.y, ms: bonusTtlMs() };
+    syncTimer();
   }
 
   function levelForScore(s) {
@@ -303,20 +383,30 @@
     if (hitBlock) { die(); return; }
 
     var eating = !!food && head.x === food.x && head.y === food.y;
-    var body = eating ? snake : snake.slice(0, snake.length - 1);
+    var taking = !!bonus && head.x === bonus.x && head.y === bonus.y;
+    var growing = eating || taking;
+    var body = growing ? snake : snake.slice(0, snake.length - 1);
     var hitSelf = body.some(function (s) { return s.x === head.x && s.y === head.y; });
     if (hitSelf) { die(); return; }
 
     snake.unshift(head);
 
     if (eating) {
+      eaten++;
       score++;
-      tick = tickFor(score);
-      if (score > best) { best = score; saveBest(best); }
+      tick = tickFor(eaten);
+      submitScore();
       placeFood();
-      if (score % 6 === 0) spawnObstacle();
+      if (eaten % 6 === 0) spawnObstacle();
+      if (eaten % BONUS_EVERY === 0) spawnBonus();
       syncHud();
       try { if (navigator.vibrate) navigator.vibrate(8); } catch (e) { /* 不支持震动时忽略 */ }
+    } else if (taking) {
+      score += 5;                    // 只加分，不动速度档位
+      bonus = null;
+      submitScore();
+      syncHud();
+      try { if (navigator.vibrate) navigator.vibrate([6, 30, 6]); } catch (e) { /* 忽略 */ }
     } else {
       snake.pop();
     }
@@ -325,7 +415,9 @@
   function die() {
     alive = false;
     running = false;
-    if (score > best) { best = score; saveBest(best); }
+    submitScore();
+    newRecord = score > 0 && score > bestAtStart;
+    bonus = null;
     syncHud();
 
     stage.classList.remove('shake');
@@ -361,6 +453,19 @@
       ctx.fillRect(px + 2, py + 2, CELL - 4, CELL - 4);
       ctx.fillStyle = 'rgba(255, 235, 240, 0.6)';
       ctx.fillRect(px + 4, py + 4, 3, 3);
+    }
+
+    if (bonus) {
+      var bp = 1 + Math.sin(now / 140) * 1.2;
+      px = bonus.x * CELL;
+      py = bonus.y * CELL;
+      ctx.fillStyle = 'rgba(255, 217, 61, 0.18)';
+      ctx.fillRect(px - bp, py - bp, CELL + bp * 2, CELL + bp * 2);
+      ctx.fillStyle = '#ffd93d';
+      ctx.fillRect(px + 5, py + 2, 6, CELL - 4);
+      ctx.fillRect(px + 2, py + 5, CELL - 4, 6);
+      ctx.fillStyle = '#fffbe0';
+      ctx.fillRect(px + 7, py + 7, 2, 2);
     }
 
     for (i = 0; i < obstacles.length; i++) {
@@ -416,6 +521,10 @@
     var dt = t - last;
     last = t;
     if (dt > 200) dt = tick;
+    if (bonus) {
+      bonus.ms -= dt;
+      if (bonus.ms <= 0) { bonus = null; syncTimer(); } else { syncTimer(); }
+    }
     acc += dt;
     while (acc >= tick && alive) { acc -= tick; step(); }
   }
@@ -427,13 +536,20 @@
     ovInstall.hidden = kind !== 'start';
     diffBox.hidden = kind === 'pause';
 
+    if (kind === 'start') {
+      // 开始页不显示上一局的计时
+      timerText = '';
+      bonus = null;
+      syncTimer();
+    }
+
     if (kind === 'pause') {
       ovTitle.textContent = '已暂停';
       ovTip.textContent = '休息一下，随时继续';
       ovBtn.textContent = '继续';
     } else if (kind === 'start') {
       ovTitle.textContent = '贪吃蛇';
-      ovTip.innerHTML = '撞墙即死 · 吃到食物变长并<b>加速</b><br />点棋盘暂停 · 环形键 / 滑动 / 方向键';
+      ovTip.innerHTML = '红果 +1 分并<b>加速</b> · 限时黄块 +5 分（不加速）<br />点棋盘暂停 · 环形键 / 滑动 / 方向键';
       ovBtn.textContent = '开始游戏';
     } else {
       ovTitle.textContent = '游戏结束';
@@ -441,7 +557,7 @@
       ovScore.textContent = String(score);
       ovBest.textContent = String(best);
       ovScores.hidden = false;
-      ovBadge.hidden = !(score > 0 && score >= best);
+      ovBadge.hidden = !newRecord;
       ovBtn.textContent = '再来一局';
     }
     overlay.classList.add('is-open');
@@ -601,6 +717,7 @@
     if (!DIFFS[k] || k === diff) return;
     diff = k;
     saveDiff(k);
+    best = bestFor(k);
     applyDiffUI();
     if (!running) { reset(); draw(); }
   });
@@ -629,11 +746,15 @@
         return {
           snake: snake.slice(), food: food, score: score, best: best,
           alive: alive, running: running, tick: tick, dir: { x: dir.x, y: dir.y },
-          obstacles: obstacles.slice(), diff: diff
+          obstacles: obstacles.slice(), diff: diff,
+          eaten: eaten, bonus: bonus, bestByDiff: { normal: bestFor('normal'), hard: bestFor('hard') }
         };
       },
       placeFoodAt: function (x, y) { food = { x: x, y: y }; },
       placeObstacleAt: function (x, y) { obstacles.push({ x: x, y: y }); },
+      placeBonusAt: function (x, y) { bonus = { x: x, y: y, ms: bonusTtlMs() }; syncTimer(); },
+      spawnBonus: spawnBonus,
+      bonusTtlMs: bonusTtlMs,
       levelForScore: levelForScore,
       tickFor: tickFor,
       step: step,
