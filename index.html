@@ -63,25 +63,20 @@
     box-shadow: 0 0 0 1px rgba(61, 255, 110, 0.06), 0 0 26px rgba(61, 255, 110, 0.10);
   }
   .hint { margin: 0; font-size: 11px; letter-spacing: 1px; color: var(--text-dim); }
-  .pad {
-    display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr);
-    gap: 8px; width: min(62vw, 214px); aspect-ratio: 1;
+  .pad { width: min(70vw, 44vh, 280px); aspect-ratio: 1; touch-action: none; }
+  .ring { display: block; width: 100%; height: 100%; }
+  .ring .sec {
+    fill: rgba(61, 255, 110, 0.05); stroke: var(--line); stroke-width: 1.5;
+    cursor: pointer; transition: fill 0.06s, stroke 0.06s;
   }
-  .key {
-    display: flex; align-items: center; justify-content: center; padding: 0;
-    font: inherit; font-size: 17px; color: var(--neon); background: var(--panel);
-    border: 1px solid var(--line); border-radius: 3px; cursor: pointer;
-    touch-action: none; transition: background 0.06s, border-color 0.06s, box-shadow 0.06s;
+  .ring .sec.is-down {
+    fill: rgba(61, 255, 110, 0.24); stroke: var(--neon);
+    filter: drop-shadow(0 0 7px rgba(61, 255, 110, 0.55));
   }
-  .key.is-down {
-    background: rgba(61, 255, 110, 0.16); border-color: var(--neon);
-    box-shadow: 0 0 14px rgba(61, 255, 110, 0.28) inset;
-  }
-  .key.up { grid-area: 1 / 2; }
-  .key.left { grid-area: 2 / 1; }
-  .key.right { grid-area: 2 / 3; }
-  .key.down { grid-area: 3 / 2; }
-  .key.center { grid-area: 2 / 2; font-size: 11px; letter-spacing: 1px; color: var(--text-dim); }
+  .ring .arrow { fill: var(--neon); opacity: 0.72; pointer-events: none; }
+  .ring .sec.is-down + .arrow { opacity: 1; }
+  .ring .hub { fill: none; stroke: var(--line); stroke-width: 1; pointer-events: none; }
+  .ring .hub-dot { fill: var(--neon); opacity: 0.28; pointer-events: none; }
   .overlay {
     position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
     background: rgba(3, 6, 4, 0.86); z-index: 20; padding: 24px;
@@ -124,13 +119,9 @@
   <main class="stage">
     <canvas id="board" width="320" height="320"></canvas>
   </main>
-  <p class="hint">撞墙即死 · 方向键 / WASD / 屏幕按键</p>
-  <nav class="pad" id="pad">
-    <button class="key up" data-dir="up" aria-label="向上">▲</button>
-    <button class="key left" data-dir="left" aria-label="向左">◀</button>
-    <button class="key center" id="pauseBtn" aria-label="暂停">II</button>
-    <button class="key right" data-dir="right" aria-label="向右">▶</button>
-    <button class="key down" data-dir="down" aria-label="向下">▼</button>
+  <p class="hint">撞墙即死 · 点棋盘暂停 · 环形键 / 滑动 / 方向键</p>
+  <nav class="pad" aria-label="方向控制">
+    <svg class="ring" id="ring" viewBox="0 0 200 200" role="group" aria-label="环形方向键"></svg>
   </nav>
 </div>
 
@@ -139,7 +130,7 @@
 <div class="overlay is-open" id="overlay">
   <div class="panel">
     <h1 class="title" id="ovTitle">贪吃蛇</h1>
-    <p class="tip" id="ovTip">撞墙即死 · 吃到食物变长并<b>加速</b><br />方向键 / WASD / 屏幕方向键</p>
+    <p class="tip" id="ovTip">撞墙即死 · 吃到食物变长并<b>加速</b><br />点棋盘暂停 · 环形键 / 滑动 / 方向键</p>
     <div class="scoreline" id="ovScores" hidden>
       <span>本局<b id="ovScore">0</b></span>
       <span>最高<b id="ovBest">0</b></span>
@@ -342,7 +333,7 @@
       ovBtn.textContent = '继续';
     } else if (kind === 'start') {
       ovTitle.textContent = '贪吃蛇';
-      ovTip.innerHTML = '撞墙即死 · 吃到食物变长并<b>加速</b><br />方向键 / WASD / 屏幕方向键';
+      ovTip.innerHTML = '撞墙即死 · 吃到食物变长并<b>加速</b><br />点棋盘暂停 · 环形键 / 滑动 / 方向键';
       ovBtn.textContent = '开始游戏';
     } else {
       ovTitle.textContent = '游戏结束';
@@ -385,7 +376,7 @@
   }
 
   function clearKeys() {
-    Array.prototype.forEach.call(document.querySelectorAll('.key'), function (el) {
+    Array.prototype.forEach.call(document.querySelectorAll('.ring .sec'), function (el) {
       el.classList.remove('is-down');
     });
   }
@@ -410,27 +401,62 @@
     }
   });
 
-  // ---- 屏幕方向键 ----
+  // ---- 环形四分方向键 ----
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  var RING_OUT = 95, RING_IN = 46, RING_GAP = 8;
   var DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-  var pad = document.getElementById('pad');
+  var DIR_ANGLE = { up: -90, right: 0, down: 90, left: 180 };
 
-  function bindKey(el, name) {
-    el.addEventListener('pointerdown', function (e) {
+  function polar(deg, radius) {
+    var a = deg * Math.PI / 180;
+    return [100 + radius * Math.cos(a), 100 + radius * Math.sin(a)];
+  }
+  function fmt(n) { return n.toFixed(2); }
+  function sectorPath(center, R, r) {
+    var half = 45 - RING_GAP / 2;
+    var p1 = polar(center - half, R), p2 = polar(center + half, R);
+    var p3 = polar(center + half, r), p4 = polar(center - half, r);
+    return 'M' + fmt(p1[0]) + ' ' + fmt(p1[1]) +
+      'A' + R + ' ' + R + ' 0 0 1 ' + fmt(p2[0]) + ' ' + fmt(p2[1]) +
+      'L' + fmt(p3[0]) + ' ' + fmt(p3[1]) +
+      'A' + r + ' ' + r + ' 0 0 0 ' + fmt(p4[0]) + ' ' + fmt(p4[1]) + 'Z';
+  }
+  function arrowPath(center, R, r) {
+    var mid = (R + r) / 2, size = 12;
+    var ux = Math.cos(center * Math.PI / 180), uy = Math.sin(center * Math.PI / 180);
+    var px = -uy, py = ux;
+    var c = polar(center, mid);
+    var tip = [c[0] + ux * size, c[1] + uy * size];
+    var b1 = [c[0] - ux * size * 0.5 + px * size * 0.72, c[1] - uy * size * 0.5 + py * size * 0.72];
+    var b2 = [c[0] - ux * size * 0.5 - px * size * 0.72, c[1] - uy * size * 0.5 - py * size * 0.72];
+    return 'M' + fmt(tip[0]) + ' ' + fmt(tip[1]) +
+      'L' + fmt(b1[0]) + ' ' + fmt(b1[1]) +
+      'L' + fmt(b2[0]) + ' ' + fmt(b2[1]) + 'Z';
+  }
+  function svgNode(name, attrs) {
+    var el = document.createElementNS(SVG_NS, name);
+    for (var k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  var ringSvg = document.getElementById('ring');
+  ['up', 'right', 'down', 'left'].forEach(function (name) {
+    var sec = svgNode('path', { class: 'sec', d: sectorPath(DIR_ANGLE[name], RING_OUT, RING_IN), 'data-dir': name });
+    sec.addEventListener('pointerdown', function (e) {
       e.preventDefault();
-      el.classList.add('is-down');
-      if (name === 'pause') { pause(); return; }
+      sec.classList.add('is-down');
       if (running && alive) turn(DIRS[name][0], DIRS[name][1]);
     });
     ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) {
-      el.addEventListener(ev, function () { el.classList.remove('is-down'); });
+      sec.addEventListener(ev, function () { sec.classList.remove('is-down'); });
     });
-  }
-  Array.prototype.forEach.call(pad.querySelectorAll('[data-dir]'), function (el) {
-    bindKey(el, el.getAttribute('data-dir'));
+    ringSvg.appendChild(sec);
+    ringSvg.appendChild(svgNode('path', { class: 'arrow', d: arrowPath(DIR_ANGLE[name], RING_OUT, RING_IN) }));
   });
-  bindKey(document.getElementById('pauseBtn'), 'pause');
+  ringSvg.appendChild(svgNode('circle', { class: 'hub', cx: 100, cy: 100, r: RING_IN - 6 }));
+  ringSvg.appendChild(svgNode('circle', { class: 'hub-dot', cx: 100, cy: 100, r: 3 }));
 
-  // ---- 棋盘上滑动转向 ----
+  // ---- 棋盘上：滑动转向，点一下暂停 ----
   var sx = 0, sy = 0, dragging = false;
   canvas.addEventListener('pointerdown', function (e) {
     dragging = true;
@@ -442,7 +468,7 @@
     dragging = false;
     if (!running || !alive) return;
     var dx = e.clientX - sx, dy = e.clientY - sy;
-    if (Math.abs(dx) < 18 && Math.abs(dy) < 18) return;
+    if (Math.abs(dx) < 18 && Math.abs(dy) < 18) { pause(); return; }
     if (Math.abs(dx) > Math.abs(dy)) turn(dx > 0 ? 1 : -1, 0);
     else turn(0, dy > 0 ? 1 : -1);
   });
