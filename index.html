@@ -48,6 +48,8 @@
     text-shadow: 0 0 12px rgba(61, 255, 110, 0.45);
   }
   .stat.right { text-align: right; }
+  .stat.mid { align-items: center; text-align: center; }
+  .stat.mid .value { font-size: 20px; color: var(--text); text-shadow: 0 0 10px rgba(61, 255, 110, 0.35); }
   .stage { position: relative; will-change: transform; }
   .stage.shake { animation: shake 0.32s steps(2, end); }
   @keyframes shake {
@@ -114,6 +116,7 @@
 <div class="app">
   <header class="hud">
     <div class="stat"><span class="label">SCORE</span><span class="value" id="score">0</span></div>
+    <div class="stat mid"><span class="label">LV</span><span class="value" id="lv">1</span></div>
     <div class="stat right"><span class="label">BEST</span><span class="value" id="best">0</span></div>
   </header>
   <main class="stage">
@@ -146,7 +149,9 @@
   'use strict';
 
   var COLS = 22, ROWS = 22, CELL = 16;
-  var BASE_TICK = 140, MIN_TICK = 62, ACCEL = 6;
+  // 提速档位：累计 8 / 6 / 4 / 3 / 2 / 2 / 1 分升一级，之后每 1 分升一级
+  var TIER_GAPS = [8, 6, 4, 3, 2, 2, 1];
+  var BASE_TICK = 150, STEP_TICK = 7, MIN_TICK = 66;
   var STORE_KEY = 'snake.best.v1';
 
   var canvas = document.getElementById('board');
@@ -156,6 +161,7 @@
 
   var elScore = document.getElementById('score');
   var elBest = document.getElementById('best');
+  var elLv = document.getElementById('lv');
   var overlay = document.getElementById('overlay');
   var ovTitle = document.getElementById('ovTitle');
   var ovTip = document.getElementById('ovTip');
@@ -185,7 +191,7 @@
     dir = { x: 1, y: 0 };
     queue = [];
     score = 0;
-    tick = BASE_TICK;
+    tick = tickFor(0);
     alive = true;
     placeFood();
     syncHud();
@@ -204,6 +210,22 @@
   function syncHud() {
     elScore.textContent = String(score);
     elBest.textContent = String(best);
+    elLv.textContent = String(levelForScore(score) + 1);
+  }
+
+  function levelForScore(s) {
+    var level = 0, need = 0, i = 0;
+    while (level < 99) {
+      need += i < TIER_GAPS.length ? TIER_GAPS[i] : 1;
+      if (s < need) return level;
+      level++;
+      i++;
+    }
+    return level;
+  }
+
+  function tickFor(s) {
+    return Math.max(MIN_TICK, BASE_TICK - levelForScore(s) * STEP_TICK);
   }
 
   function turn(nx, ny) {
@@ -229,7 +251,7 @@
 
     if (eating) {
       score++;
-      tick = Math.max(MIN_TICK, BASE_TICK - score * ACCEL);
+      tick = tickFor(score);
       if (score > best) { best = score; saveBest(best); }
       placeFood();
       syncHud();
@@ -503,6 +525,8 @@
         };
       },
       placeFoodAt: function (x, y) { food = { x: x, y: y }; },
+      levelForScore: levelForScore,
+      tickFor: tickFor,
       step: step,
       start: start
     };
