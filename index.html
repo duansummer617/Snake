@@ -71,7 +71,7 @@
     box-shadow: 0 0 0 1px rgba(61, 255, 110, 0.06), 0 0 26px rgba(61, 255, 110, 0.10);
   }
   .hint { margin: 0; font-size: 11px; letter-spacing: 1px; color: var(--text-dim); }
-  .pad { width: min(66vw, 36vh, 290px); aspect-ratio: 1; touch-action: none; }
+  .pad { width: min(68vw, 40vh, 300px); aspect-ratio: 200 / 170; touch-action: none; }
   .ring { display: block; width: 100%; height: 100%; }
   .ring .sec {
     fill: rgba(61, 255, 110, 0.05); stroke: var(--line); stroke-width: 1.5;
@@ -143,7 +143,7 @@
   </main>
   <p class="hint">红果 +1 分 · 限时黄块 +5 分 · 点棋盘暂停</p>
   <nav class="pad" aria-label="方向控制">
-    <svg class="ring" id="ring" viewBox="0 0 200 200" role="group" aria-label="环形方向键"></svg>
+    <svg class="ring" id="ring" viewBox="0 0 200 170" role="group" aria-label="环形方向键"></svg>
   </nav>
 </div>
 
@@ -620,6 +620,7 @@
   // ---- 环形四分方向键 ----
   var SVG_NS = 'http://www.w3.org/2000/svg';
   var RING_OUT = 95, RING_IN = 46, RING_GAP = 8;
+  var RING_SQUASH = 0.85;   // 纵向压扁：上下键向圆心收拢（方案 A）
   var DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
   var DIR_ANGLE = { up: -90, right: 0, down: 90, left: 180 };
 
@@ -656,6 +657,8 @@
   }
 
   var ringSvg = document.getElementById('ring');
+  var ringRoot = svgNode('g', { transform: 'scale(1,' + RING_SQUASH + ')' });
+  ringSvg.appendChild(ringRoot);
   ['up', 'right', 'down', 'left'].forEach(function (name) {
     var sec = svgNode('path', { class: 'sec', d: sectorPath(DIR_ANGLE[name], RING_OUT, RING_IN), 'data-dir': name });
     sec.addEventListener('pointerdown', function (e) {
@@ -666,11 +669,11 @@
     ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (ev) {
       sec.addEventListener(ev, function () { sec.classList.remove('is-down'); });
     });
-    ringSvg.appendChild(sec);
-    ringSvg.appendChild(svgNode('path', { class: 'arrow', d: arrowPath(DIR_ANGLE[name], RING_OUT, RING_IN) }));
+    ringRoot.appendChild(sec);
+    ringRoot.appendChild(svgNode('path', { class: 'arrow', d: arrowPath(DIR_ANGLE[name], RING_OUT, RING_IN) }));
   });
-  ringSvg.appendChild(svgNode('circle', { class: 'hub', cx: 100, cy: 100, r: RING_IN - 6 }));
-  ringSvg.appendChild(svgNode('circle', { class: 'hub-dot', cx: 100, cy: 100, r: 3 }));
+  ringRoot.appendChild(svgNode('circle', { class: 'hub', cx: 100, cy: 100, r: RING_IN - 6 }));
+  ringRoot.appendChild(svgNode('circle', { class: 'hub-dot', cx: 100, cy: 100, r: 3 }));
 
   // ---- 棋盘上：滑动转向，点一下暂停 ----
   var sx = 0, sy = 0, dragging = false;
