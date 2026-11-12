@@ -1,5 +1,5 @@
 /* 贪吃蛇的离线缓存：首次访问后即可断网游玩 */
-const CACHE = 'snake-v5';
+const CACHE = 'snake-v6';
 const ASSETS = [
   './',
   './index.html',
