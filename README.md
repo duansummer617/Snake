@@ -2,9 +2,10 @@
 
 经典像素风贪吃蛇，纯前端单页，可「安装」到 Android 桌面像原生 App 一样全屏启动，装过之后断网也能玩。
 
-- 操作：屏幕虚拟方向键（也支持键盘方向键 / WASD / 在棋盘上滑动）
-- 规则：撞墙即死；吃到食物变长并小幅加速；最高分存在本机
-- 视觉：深色背景，蛇为霓虹绿，食物为霓虹红
+- 操作：环形四分 D-pad（也支持键盘方向键 / WASD / 在棋盘上滑动）；点一下棋盘即暂停
+- 规则：撞墙即死；吃到食物变长，并按得分档位提速；最高分存在本机
+- 难度：普通 / 困难（困难起步更长更快，且每得 6 分在棋盘上长出一个障碍）
+- 视觉：深色背景，蛇为霓虹绿，食物为霓虹红，障碍为红框叉块
 
 ## 三步先跑起来
 
@@ -51,10 +52,18 @@ snake/
 游戏参数都在 `index.html` 脚本开头的几行常量里：
 
 ```js
-var COLS = 20, ROWS = 20, CELL = 16;      // 棋盘 20×20 格，每格 16px
-var BASE_TICK = 140, MIN_TICK = 62, ACCEL = 6;  // 初始 140ms/格；每吃一个快 6ms；最快 62ms
-var STORE_KEY = 'snake.best.v1';          // 最高分的 localStorage key
+var COLS = 22, ROWS = 22, CELL = 16;      // 棋盘 22×22 格，每格 16px
+var TIER_GAPS = [8, 6, 4, 3, 2, 2, 1];    // 升第 2/3/4…级各需再吃几分，用尽后每 1 分一级
+var STORE_KEY = 'snake.best.v1';          // 最高分
+var DIFF_KEY = 'snake.diff.v1';           // 上次选择的难度
 ```
+
+速度公式：`tick = max(min, base - 等级 × step)`，单位毫秒/格，数值越小蛇越快；等级由累计得分按 `TIER_GAPS` 推出。
+
+| 难度 | 起步 tick | 每级减速 | 最快 tick | 初始身长 | 障碍 |
+| --- | --- | --- | --- | --- | --- |
+| 普通 | 150 | 7 | 66 | 3 节 | 无 |
+| 困难 | 118 | 9 | 50 | 5 节 | 最多 8 个，每 6 分生成一个 |
 
 配色在 `<style>` 开头的 `:root` 里（`--neon` 蛇/强调色、`--food` 食物色、`--bg` 背景）。
 
@@ -67,6 +76,7 @@ v0-core        核心玩法：移动、撞墙/撞身判定、计分、最高分�
 v1-playable    屏幕方向键、滑动转向、暂停、像素风视觉
 v2-pwa         manifest、离线缓存、图标，可安装到桌面
 v3-final       开始页/结束页信息修正、README、一键本地启动
+v4-difficulty  环形四分 D-pad、点棋盘暂停、棋盘 22×22、得分档位提速、普通/困难难度
 ```
 
 回退到任意版本：
@@ -80,10 +90,13 @@ git reset --hard v1-playable
 带 `?dev=1` 打开时，页面会暴露一个调试对象，方便自动化测试（正常游玩不受影响）：
 
 ```js
-window.__dev.state()          // { snake, food, score, best, alive, running, tick, dir }
-window.__dev.placeFoodAt(x, y) // 把食物挪到指定格
-window.__dev.step()            // 手动走一步
-window.__dev.start()           // 立即开局
+window.__dev.state()            // { snake, food, score, best, alive, running, tick, dir, obstacles, diff }
+window.__dev.placeFoodAt(x, y)  // 把食物挪到指定格
+window.__dev.placeObstacleAt(x, y) // 放一个障碍（困难模式调试用）
+window.__dev.levelForScore(s)   // 第 s 分对应的等级（0 起）
+window.__dev.tickFor(s)         // 第 s 分对应的 tick
+window.__dev.step()             // 手动走一步
+window.__dev.start()            // 立即开局
 ```
 
 重新生成图标（需要 Pillow）：
